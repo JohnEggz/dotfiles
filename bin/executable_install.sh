@@ -24,6 +24,8 @@ PACMAN_PACKAGES=(
     "qt5ct"
     "qt6ct"
     "starship"
+    "waybar"
+    "hyprpaper"
     # Dev
     "uv"
     "hugo"
