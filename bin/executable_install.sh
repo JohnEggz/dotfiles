@@ -17,6 +17,7 @@ PACMAN_PACKAGES=(
     "fd" # better find
     "du" # estimates file sizes
     "gdu" # cli for du
+    "less" # shows console output as a scrollable
     # Fun
     "scrcpy" # copy android scrren into pc
     # UI
