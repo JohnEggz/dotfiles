@@ -1,0 +1,32 @@
+#
+# ~/.bashrc
+#
+
+eval "$(starship init bash)"
+
+# If not running interactively, don't do anything
+[[ $- != *i* ]] && return
+
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+PS1='[\u@\h \W]\$ '
+
+#
+# My custom aliases
+#
+alias nano='nvim'
+alias vim='nvim'
+alias n='~/bin/newnote.sh'
+alias qn='~/bin/newQuickNote.sh'
+alias v='nvim'
+alias p='python'
+alias pa='source .venv/bin/activate'
+
+. "$HOME/.cargo/env"
+
+# Generated for envman. Do not edit.
+[ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
+export PATH="$HOME/.local/share/gem/ruby/3.4.0/bin:$PATH"
+# Install Ruby Gems to ~/gems
+export GEM_HOME="$HOME/gems"
+export PATH="$HOME/gems/bin:$PATH"
