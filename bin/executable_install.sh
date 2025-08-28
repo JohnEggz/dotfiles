@@ -18,17 +18,17 @@ PACMAN_PACKAGES=(
     "du" # estimates file sizes
     "gdu" # cli for du
     # Fun
-    "scrcpy"
+    "scrcpy" # copy android scrren into pc
     # UI
-    "kvantum"
-    "qt5ct"
-    "qt6ct"
-    "starship"
-    "waybar"
-    "hyprpaper"
+    "kvantum" # theme manager
+    "qt5ct" # theme manager for qt apps
+    "qt6ct" # theme manager for qt apps
+    "starship" # cute terminal prompt
+    "waybar" # status bar for hyprland
+    "hyprpaper" # wallpaper manager for hyprland
     # Dev
-    "uv"
-    "hugo"
+    "uv" # everything you need for python in terminal
+    "hugo" # static site generator
 )
 
 # --- General Script Settings ---
@@ -160,4 +160,3 @@ main() {
 
 # Execute the main function
 main "$@"
-ain "$@"
