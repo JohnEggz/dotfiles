@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # install.sh - Arch Linux Auto-install Script
 
@@ -125,31 +126,6 @@ download_and_install_tar_xz() {
     log "$installed_name installed successfully to $final_install_path."
 }
 
-# --- Chezmoi Integration ---
-# Initialize and apply Chezmoi dotfiles
-apply_chezmoi() {
-    log "Applying Chezmoi dotfiles..."
-
-    if ! command_exists chezmoi; then
-        log "ERROR: chezmoi is not installed. Please add it to PACMAN_PACKAGES."
-        exit 1
-    fi
-
-    # Repo
-    local dotfiles_repo="https://github.com/JohnEggz/dotfiles.git"
-
-    # Check if chezmoi is already initialized
-    if [ ! -d "$HOME/.local/share/chezmoi/.git" ]; then
-        log "Initializing chezmoi repo from $dotfiles_repo..."
-        # Use --noconfirm if you want it fully automated, otherwise chezmoi might prompt
-        chezmoi init --apply "$dotfiles_repo" || { log "ERROR: chezmoi init failed."; exit 1; }
-    else
-        log "Chezmoi already initialized. Running chezmoi apply to ensure latest dotfiles..."
-        chezmoi apply || { log "ERROR: chezmoi apply failed."; exit 1; }
-    fi
-    log "Chezmoi dotfiles applied."
-}
-
 # --- Main Installation Steps ---
 main() {
     check_sudo
@@ -177,10 +153,9 @@ main() {
         "firefox" \
         "/opt" \
 
-    apply_chezmoi # Run Chezmoi to apply dotfiles and then run_once_ scripts
-
     log "All auto-install script steps completed successfully!"
 }
 
 # Execute the main function
 main "$@"
+ain "$@"
