@@ -32,6 +32,23 @@ PACMAN_PACKAGES=(
     "hugo" # static site generator
 )
 
+# Formats:
+# tar.gz
+# tar.xz
+# AppImage
+# zip
+WEB_PACKAGES=(
+    # Format: "URL|Name_inside_archive_and_final_install_name|Target_parent_directory|Archive_type_hint"
+    "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US|firefox|$HOME/opt|tar.xz"
+    "https://download.anydesk.com/linux/anydesk-7.0.2-amd64.tar.gz|anydesk-7.0.2|$HOME/opt|tar.gz"
+    # EXAMPLES
+    # Example 3: Tutanota (AppImage) - installs 'tutanota-desktop' file into '$HOME/opt'
+    # "https://download.tutanota.com/desktop/tutanota-desktop-linux.AppImage|tutanota-desktop|$HOME/opt|AppImage"
+    # Example 4: Terraform (zip, single binary) - extracts 'terraform' binary to '/usr/local/bin'
+    # "https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip|terraform|/usr/local/bin|zip"
+    # "https://github.com/syncthing/syncthing/releases/download/v2.0.6/syncthing-linux-amd64-v2.0.6.tar.gz|syncthing-linux-amd64-v2.0.6|$HOME/opt|tar.gz"
+)
+
 # --- General Script Settings ---
 set -e          # Exit immediately if a command exits with a non-zero status.
 set -u          # Treat unset variables as an error.
@@ -66,75 +83,136 @@ install_package() {
 }
 
 # --- Custom Software Handlers ---
+# --- Generic Installation Function ---
+# This function handles downloading, extracting (if needed), and installing
+# different types of archive files.
+install_web_package() {
+    local url="$1"                 # The URL to download the package from
+    local name_inside_archive="$2" # The expected name of the top-level item (file or directory) inside the archive,
+                                   # and also the final name of the installed item in target_parent_dir.
+    local target_parent_dir="$3"   # The parent directory where the package will be installed (e.g., /opt, $HOME/opt)
+    local archive_type_hint="$4"   # A hint for the archive type: "tar.xz", "tar.gz", "zip", "AppImage"
 
-# Function to download, extract, and install a .tar.xz file from a URL
-# Arguments:
-#   $1: URL of the .tar.xz file
-#   $2: Expected name of the top-level directory within the archive (e.g., 'my-app-1.0.0')
-#   $3: Destination directory where the extracted content should go (e.g., '/opt', '$HOME/.local')
-#   $4: (Optional) New name for the installed directory (defaults to $2 if not provided)
-download_and_install_tar_xz() {
-    local url="$1"
-    local archive_name="$(basename "$url")"
-    local expected_top_dir="$2"
-    local install_base_dir="$3"
-    local installed_name="${4:-$expected_top_dir}" # Use $4 if provided, else $2
+    local final_install_path="$target_parent_dir/$name_inside_archive"
+    local temp_dir="/tmp/pkg-install-$$" # Unique temporary directory for downloads and extraction
+    local downloaded_file="$temp_dir/download_payload.${archive_type_hint}" # Temp filename with type hint
 
-    local temp_dir="/tmp/tar-xz-install-$$" # Unique temporary directory
-    local final_install_path="$install_base_dir/$installed_name"
+    log "--- Processing '$name_inside_archive' ---"
 
-    # Check for idempotency: if the final path already exists, assume installed
+    # --- Idempotency Check ---
     if [ -d "$final_install_path" ] || [ -f "$final_install_path" ]; then
-        log "$installed_name already appears to be installed at $final_install_path."
+        log "Package '$name_inside_archive' already appears to be installed at $final_install_path. Skipping."
         return 0
     fi
 
-    log "Downloading and installing $archive_name from $url..."
+    # --- Create target parent directory ---
+    # Determine if sudo is needed for target_parent_dir creation
+    local mkdir_cmd="mkdir -p \"$target_parent_dir\""
+    if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
+        log "Target directory '$target_parent_dir' requires root permissions for creation. Using sudo."
+        sudo bash -c "$mkdir_cmd" || { log "ERROR: Failed to create target directory $target_parent_dir with sudo."; return 1; }
+    else
+        bash -c "$mkdir_cmd" || { log "ERROR: Failed to create target directory $target_parent_dir."; return 1; }
+    fi
+
+    # --- Handle AppImage as a special case (download directly, no extraction) ---
+    if [[ "$archive_type_hint" == "AppImage" ]]; then
+        log "Downloading AppImage directly to $final_install_path..."
+        # Use curl with progress bar and follow redirects (-L)
+        curl -L --progress-bar -o "$final_install_path" "$url" || { log "ERROR: Failed to download AppImage from $url"; return 1; }
+        log "Making $final_install_path executable..."
+        chmod +x "$final_install_path" || { log "ERROR: Failed to make AppImage executable"; rm -f "$final_install_path"; return 1; }
+        log "AppImage '$name_inside_archive' installed successfully to $final_install_path."
+        return 0 # Installation complete for AppImage, exit function
+    fi
+
+    # --- Handle other archive types (require download to temp, then extraction) ---
     mkdir -p "$temp_dir" || { log "ERROR: Failed to create temp directory $temp_dir"; return 1; }
-    mkdir -p "$install_base_dir" || { log "ERROR: Failed to create install directory $install_base_dir"; return 1; }
+    # Change into temp directory for easier extraction/manipulation
+    cd "$temp_dir" || { log "ERROR: Failed to cd into $temp_dir"; rm -rf "$temp_dir"; return 1; }
 
-    cd "$temp_dir" || { log "ERROR: Failed to cd into $temp_dir"; return 1; }
+    log "Downloading '$url' to temporary file '$downloaded_file'..."
+    curl -L --progress-bar -o "$downloaded_file" "$url" || { log "ERROR: Failed to download $url"; rm -rf "$temp_dir"; return 1; }
 
-    log "Downloading $archive_name..."
-    wget -q --show-progress "$url" -O "$archive_name" || { log "ERROR: Failed to download $archive_name"; rm -rf "$temp_dir"; return 1; }
+    log "Extracting '$downloaded_file' (Type: $archive_type_hint)..."
+    case "$archive_type_hint" in
+        "tar.xz")
+            if ! command -v xz &> /dev/null; then log "ERROR: 'xz' command (for .tar.xz) not found. Please install it."; rm -rf "$temp_dir"; return 1; fi
+            tar -Jxf "$downloaded_file" || { log "ERROR: Failed to extract tar.xz archive."; rm -rf "$temp_dir"; return 1; }
+            ;;
+        "tar.gz")
+            tar -zxf "$downloaded_file" || { log "ERROR: Failed to extract tar.gz archive."; rm -rf "$temp_dir"; return 1; }
+            ;;
+        "zip")
+            if ! command -v unzip &> /dev/null; then
+                log "ERROR: 'unzip' command not found. Please install it to handle .zip files."
+                rm -rf "$temp_dir"; return 1;
+            fi
+            unzip -q "$downloaded_file" || { log "ERROR: Failed to extract zip archive."; rm -rf "$temp_dir"; return 1; }
+            ;;
+        *)
+            log "ERROR: Unsupported archive type '$archive_type_hint'. Cannot extract."
+            rm -rf "$temp_dir"; return 1;
+            ;;
+    esac
 
-    log "Extracting $archive_name..."
-    tar -xf "$archive_name" || { log "ERROR: Failed to extract $archive_name"; rm -rf "$temp_dir"; return 1; }
-
-    # Verify the extracted directory exists
-    if [ ! -d "$expected_top_dir" ]; then
-        log "WARNING: Extracted archive did not contain expected top-level directory '$expected_top_dir'. Please check the archive structure or adjust script."
-        # Attempt to find the first directory if the name mismatch. This is a heuristic.
-        local first_dir=$(find . -maxdepth 1 -mindepth 1 -type d -print -quit)
-        if [ -n "$first_dir" ]; then
-            log "Found directory '$first_dir'. Using that as the source."
-            expected_top_dir=$(basename "$first_dir")
-        else
-            log "ERROR: No top-level directory found after extraction in $temp_dir. Cannot proceed."
+    # --- Verify extracted content and move to final destination ---
+    # Check if the expected item (file or directory) exists in the temp extraction path
+    if [ ! -e "$name_inside_archive" ]; then # Checks for file OR directory existence
+        log "ERROR: After extraction, expected item '$name_inside_archive' not found in $temp_dir."
+        log "Please verify the content of the archive and the 'name_inside_archive' parameter."
+        # Attempt a heuristic for common tarball behavior: single, differently named top-level directory.
+        if [[ "$archive_type_hint" == tar.* ]]; then
+            local extracted_dir_guess=$(find . -maxdepth 1 -mindepth 1 -type d ! -name "$name_inside_archive" -print -quit)
+            if [ -n "$extracted_dir_guess" ]; then
+                log "WARNING: Found a different top-level directory '$extracted_dir_guess'. Using this instead of '$name_inside_archive'."
+                name_inside_archive=$(basename "$extracted_dir_guess") # Update for move
+                final_install_path="$target_parent_dir/$name_inside_archive" # Update final path too
+            else
+                log "ERROR: No suitable content found for moving after extraction in '$temp_dir'."
+                cd - > /dev/null # Go back before removing temp dir
+                rm -rf "$temp_dir"; return 1;
+            fi
+        else # For zip or other types, if it's not found, it's a hard error.
+            cd - > /dev/null # Go back before removing temp dir
             rm -rf "$temp_dir"; return 1;
         fi
     fi
 
-    log "Moving extracted content to $final_install_path..."
-    # Use sudo if installing to a system-wide location like /opt
-    # Using 'mv' to ensure proper permissions/ownership in final location if root.
-    if [[ "$install_base_dir" == "/opt" || "$install_base_dir" == "/usr/local" ]]; then
-        sudo mv "$expected_top_dir" "$final_install_path" || { log "ERROR: Failed to move $expected_top_dir to $final_install_path"; rm -rf "$temp_dir"; return 1; }
+    log "Moving extracted content '$name_inside_archive' from $temp_dir to $final_install_path..."
+    # Determine if sudo is needed for 'mv' operation
+    local mv_cmd="mv \"$name_inside_archive\" \"$final_install_path\""
+    if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
+        sudo bash -c "$mv_cmd" || { log "ERROR: Failed to move '$name_inside_archive' to $final_install_path with sudo."; cd - > /dev/null; rm -rf "$temp_dir"; return 1; }
     else
-        mv "$expected_top_dir" "$final_install_path" || { log "ERROR: Failed to move $expected_top_dir to $final_install_path"; rm -rf "$temp_dir"; return 1; }
+        bash -c "$mv_cmd" || { log "ERROR: Failed to move '$name_inside_archive' to $final_install_path."; cd - > /dev/null; rm -rf "$temp_dir"; return 1; }
     fi
 
-    cd - > /dev/null # Go back to the previous directory
+    # Make executable if it's a single file (not a directory)
+    if [ -f "$final_install_path" ]; then # Check if the installed item is a file
+        if ! [ -x "$final_install_path" ]; then # If it's a file and not already executable
+            log "Making $final_install_path executable."
+            # Use sudo if target_parent_dir required it
+            if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
+                sudo chmod +x "$final_install_path" || log "WARNING: Failed to make $final_install_path executable with sudo."
+            else
+                chmod +x "$final_install_path" || log "WARNING: Failed to make $final_install_path executable."
+            fi
+        fi
+    fi
+
+    cd - > /dev/null # Go back to the directory from which the function was called
     rm -rf "$temp_dir" # Clean up temporary directory
-    log "$installed_name installed successfully to $final_install_path."
+    log "Package '$name_inside_archive' installed successfully to $final_install_path."
+    return 0
 }
 
 # --- Main Installation Steps ---
 main() {
     check_sudo
 
-    log "Starting initial system update..."
-    sudo pacman -Syu --noconfirm || log "WARNING: Initial system update failed, but continuing."
+    # log "Starting initial system update..."
+    # sudo pacman -Syu --noconfirm || log "WARNING: Initial system update failed, but continuing."
 
     log "Installing official Arch packages..."
     for pkg in "${PACMAN_PACKAGES[@]}"; do
@@ -142,19 +220,15 @@ main() {
     done
 
     log "Running custom software installations and builds..."
-    # Example for a .tar.xz file:
-    # URL: The direct link to your .tar.xz file
-    # Expected_top_dir: When you extract the tar.xz, what is the name of the folder created?
-    #                   e.g., if foo-1.0.tar.xz extracts to a folder named 'foo-1.0', then use 'foo-1.0'.
-    # Install_base_dir: Where do you want to place this folder?
-    #                   Common choices:
-    #                   - /opt : For self-contained third-party software (system-wide)
-    #                   - $HOME/.local : For user-specific software (e.g., $HOME/.local/bin)
-    # New_installed_name: (Optional) If you want to rename the folder on install (e.g., 'foo' instead of 'foo-1.0')
-    download_and_install_tar_xz \
-        "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US" \
-        "firefox" \
-        "/opt" \
+
+    for task_string in "${WEB_PACKAGES[@]}"; do
+        # Split the string by the delimiter (pipe '|') into four variables
+        IFS='|' read -r url name_inside_archive target_parent_dir archive_type_hint <<< "$task_string"
+
+        # Call the generic installation function
+        install_web_package "$url" "$name_inside_archive" "$target_parent_dir" "$archive_type_hint"
+        echo # Add a blank line for readability between tasks
+    done
 
     log "All auto-install script steps completed successfully!"
 }
