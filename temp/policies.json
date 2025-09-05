@@ -1,0 +1,85 @@
+{
+  "policies": {
+    "SearchEngines": {
+      "Default": "DuckDuckGo"
+    },
+    "EnableTrackingProtection": {
+      "Value": true,
+      "Locked": true,
+      "Cryptomining": true,
+      "Fingerprinting": true,
+      "EmailTracking": true,
+      "SuspectedFingerprinting": true,
+      "Category": "strict",
+      "Exceptions": ["https://example.com"]
+    },
+    "ManagedBookmarks": [
+      {
+        "toplevel_name": "Extract to toolbar"
+      },
+      {
+        "url": "example.com",
+        "name": "Example"
+      },
+      {
+        "url": "youtube.com",
+        "name": "Youtube"
+      }
+    ],
+    "Extensions": {
+      "Install": [
+        "uBlock0@raymondhill.net",
+        "addon@darkreader.org",
+        "ctrl-shift-c-copy@jeffersonscher.com",
+        "jid1-KKzOGWgsW3Ao4Q@jetpack",
+        "{762f9885-5a13-4abd-9c77-433dcd38b8fd}",
+        "{3c078156-979c-498b-8990-85f7987dd929}",
+        "sponsorBlocker@ajay.app",
+        "firefox@tampermonkey.net"
+      ],
+      "AutoUpdate": true
+    },
+    "Preferences": {
+      "browser.startup.homepage": "https://start.duckduckgo.com/",
+      "browser.newtabpage.enabled": false,
+      "browser.aboutConfig.showWarning": false,
+      "browser.gesture.swipe.left": "cmd_scrollLeft",
+      "browser.gesture.swipe.right": "cmd_scrollRight",
+      "browser.toolbars.bookmarks.visibility": "always",
+      "browser.tabs.closeWindowWithLastTab": false,
+      "browser.search.defaultenginename": "DuckDuckGo",
+      "browser.search.selectedEngine": "DuckDuckGo",
+      "browser.search.region": "US",
+      "browser.search.geoip.url": "",
+      "keyword.enabled": true,
+      "browser.urlbar.placeholderName": "DuckDuckGo",
+      "browser.newtab.url": "about:blank",
+      "browser.download.folderList": 2,
+      "media.autoplay.default": 5,
+      "general.autoScroll": true,
+      "browser.compactmode.enabled": false,
+      "network.cookie.cookieBehavior": 4,
+      "browser.send_pings": false,
+      "browser.urlbar.suggest.searches": false,
+      "browser.urlbar.suggest.history": true,
+      "dom.event.clipboardevents.enabled": false,
+      "network.http.referer.trimmingPolicy": 2,
+      "browser.safebrowsing.enabled": true,
+      "browser.safebrowsing.malware.enabled": true,
+      "browser.safebrowsing.phishing.enabled": true,
+      "browser.safebrowsing.downloads.enabled": true,
+      "browser.safebrowsing.downloads.remote.enabled": true,
+      "browser.safebrowsing.allowOverride": false,
+      "extensions.pocket.enabled": false,
+      "browser.newtabpage.activity-stream.showSponsored": false,
+      "browser.newtabpage.activity-stream.showSponsoredTopSites": false,
+      "browser.newtabpage.activity-stream.section.highlights.enabled": false,
+      "browser.newtabpage.activity-stream.section.topstories.enabled": false,
+      "browser.newtabpage.activity-stream.feeds.section.topstories": false,
+      "browser.newtabpage.activity-stream.feeds.discoverystories.enabled": false,
+      "browser.newtabpage.activity-stream.feeds.topsites": false,
+      "browser.newtabpage.activity-stream.feeds.snippets": false,
+      "browser.tabs.firefox-view.enabled": false
+    }
+  }
+}

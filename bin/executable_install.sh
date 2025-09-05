@@ -19,7 +19,11 @@ PACMAN_PACKAGES=(
     "gdu" # cli for du
     "less" # shows console output as a scrollable
     "firefox"
+<<<<<<< HEAD
     "ranger"
+=======
+    "yazi"
+>>>>>>> ec5f237 (added firefox policy)
     # Fun
     "scrcpy" # copy android scrren into pc
     # UI
