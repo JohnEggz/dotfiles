@@ -19,6 +19,7 @@ PACMAN_PACKAGES=(
     "gdu" # cli for du
     "less" # shows console output as a scrollable
     "firefox"
+    "ranger"
     # Fun
     "scrcpy" # copy android scrren into pc
     # UI
