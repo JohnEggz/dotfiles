@@ -18,6 +18,7 @@ PACMAN_PACKAGES=(
     "du" # estimates file sizes
     "gdu" # cli for du
     "less" # shows console output as a scrollable
+    "firefox"
     # Fun
     "scrcpy" # copy android scrren into pc
     # UI
@@ -39,7 +40,7 @@ PACMAN_PACKAGES=(
 # zip
 WEB_PACKAGES=(
     # Format: "URL|Name_inside_archive_and_final_install_name|Target_parent_directory|Archive_type_hint"
-    "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US|firefox|$HOME/opt|tar.xz"
+    # "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US|firefox|$HOME/opt|tar.xz"
     "https://download.anydesk.com/linux/anydesk-7.0.2-amd64.tar.gz|anydesk-7.0.2|$HOME/opt|tar.gz"
     # EXAMPLES
     # Example 3: Tutanota (AppImage) - installs 'tutanota-desktop' file into '$HOME/opt'
