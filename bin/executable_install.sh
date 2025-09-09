@@ -1,6 +1,21 @@
-
+#
 #!/bin/bash
-# install.sh - Arch Linux Auto-install Script
+#
+#
+# --- Configuration ---
+# Directory where multi-file/directory packages will be installed (e.g., AnyDesk)
+PACKAGES_OPT_DIR="$HOME/opt"
+# Directory where single binaries (e.g., AppImages, extracted tools like lazygit) will be installed
+PACKAGES_BIN_DIR="$HOME/bin"
+# File to keep track of successfully installed URLs to avoid re-downloading
+INSTALLED_URLS_FILE="$HOME/.local/share/web_packages_urls.txt" 
+
+# --- Setup Directories ---
+# Ensure target directories exist
+mkdir -p "$PACKAGES_OPT_DIR" || { echo "Error: Could not create $PACKAGES_OPT_DIR"; exit 1; }
+mkdir -p "$PACKAGES_BIN_DIR" || { echo "Error: Could not create $PACKAGES_BIN_DIR"; exit 1; }
+mkdir -p "$(dirname "$INSTALLED_URLS_FILE")" || { echo "Error: Could not create directory for $INSTALLED_URLS_FILE"; exit 1; }
+touch "$INSTALLED_URLS_FILE" # Ensure the URLs file exists
 
 # --- Configuration ---
 # List of official Arch packages to install
@@ -19,11 +34,7 @@ PACMAN_PACKAGES=(
     "gdu" # cli for du
     "less" # shows console output as a scrollable
     "firefox"
-<<<<<<< HEAD
-    "ranger"
-=======
     "yazi"
->>>>>>> ec5f237 (added firefox policy)
     # Fun
     "scrcpy" # copy android scrren into pc
     # UI
@@ -43,16 +54,11 @@ PACMAN_PACKAGES=(
 # tar.xz
 # AppImage
 # zip
+#
+# Formating: URL|extension
 WEB_PACKAGES=(
-    # Format: "URL|Name_inside_archive_and_final_install_name|Target_parent_directory|Archive_type_hint"
-    # "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US|firefox|$HOME/opt|tar.xz"
-    "https://download.anydesk.com/linux/anydesk-7.0.2-amd64.tar.gz|anydesk-7.0.2|$HOME/opt|tar.gz"
-    # EXAMPLES
-    # Example 3: Tutanota (AppImage) - installs 'tutanota-desktop' file into '$HOME/opt'
-    # "https://download.tutanota.com/desktop/tutanota-desktop-linux.AppImage|tutanota-desktop|$HOME/opt|AppImage"
-    # Example 4: Terraform (zip, single binary) - extracts 'terraform' binary to '/usr/local/bin'
-    # "https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip|terraform|/usr/local/bin|zip"
-    # "https://github.com/syncthing/syncthing/releases/download/v2.0.6/syncthing-linux-amd64-v2.0.6.tar.gz|syncthing-linux-amd64-v2.0.6|$HOME/opt|tar.gz"
+    "https://download.anydesk.com/linux/anydesk-7.0.2-amd64.tar.gz|tar.gz"
+    "https://github.com/localsend/localsend/releases/download/v1.17.0/LocalSend-1.17.0-linux-x86-64.tar.gz|tar.gz"
 )
 
 # --- General Script Settings ---
@@ -94,123 +100,135 @@ install_package() {
 # different types of archive files.
 install_web_package() {
     local url="$1"                 # The URL to download the package from
-    local name_inside_archive="$2" # The expected name of the top-level item (file or directory) inside the archive,
-                                   # and also the final name of the installed item in target_parent_dir.
-    local target_parent_dir="$3"   # The parent directory where the package will be installed (e.g., /opt, $HOME/opt)
-    local archive_type_hint="$4"   # A hint for the archive type: "tar.xz", "tar.gz", "zip", "AppImage"
+    local archive_type_hint="$2"   # A hint for the archive type: "tar.xz", "tar.gz", "zip", "AppImage"
 
-    local final_install_path="$target_parent_dir/$name_inside_archive"
-    local temp_dir="/tmp/pkg-install-$$" # Unique temporary directory for downloads and extraction
-    local downloaded_file="$temp_dir/download_payload.${archive_type_hint}" # Temp filename with type hint
+    log "Attempting to install: $url (Type: $archive_type_hint)"
 
-    log "--- Processing '$name_inside_archive' ---"
-
-    # --- Idempotency Check ---
-    if [ -d "$final_install_path" ] || [ -f "$final_install_path" ]; then
-        log "Package '$name_inside_archive' already appears to be installed at $final_install_path. Skipping."
-        return 0
+    # 1. Check if current url is in urls.txt
+    if grep -qF "$url" "$INSTALLED_URLS_FILE"; then
+        log "URL '$url' already found in '$INSTALLED_URLS_FILE'. Skipping."
+        return 0 # Success, already installed
     fi
 
-    # --- Create target parent directory ---
-    # Determine if sudo is needed for target_parent_dir creation
-    local mkdir_cmd="mkdir -p \"$target_parent_dir\""
-    if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
-        log "Target directory '$target_parent_dir' requires root permissions for creation. Using sudo."
-        sudo bash -c "$mkdir_cmd" || { log "ERROR: Failed to create target directory $target_parent_dir with sudo."; return 1; }
-    else
-        bash -c "$mkdir_cmd" || { log "ERROR: Failed to create target directory $target_parent_dir."; return 1; }
-    fi
+    local download_filename=$(basename "$url")
+    local tmp_download_path=$(mktemp "/tmp/$download_filename.XXXXXX")
+    local tmp_extract_dir # Will be created later if needed
 
-    # --- Handle AppImage as a special case (download directly, no extraction) ---
+    # Ensure temporary files/dirs are cleaned up on function exit
+    # This trap will run whether the function succeeds or fails.
+    trap 'rm -rf "$tmp_download_path" "$tmp_extract_dir"' RETURN
+
+    log "Downloading '$url' to '$tmp_download_path'..."
+    # 2. Download file with wget
+    if ! wget -q --show-progress -O "$tmp_download_path" "$url"; then
+        log "Error: Failed to download '$url'."
+        return 1
+    fi
+    log "Download complete."
+
+    local package_base_name=$(echo "$download_filename" | sed -E 's/\.(tar\.gz|tar\.xz|zip|appimage)$//i')
+    local install_success=0
+
+    # Special handling for AppImage: move directly to ~/bin
     if [[ "$archive_type_hint" == "AppImage" ]]; then
-        log "Downloading AppImage directly to $final_install_path..."
-        # Use curl with progress bar and follow redirects (-L)
-        curl -L --progress-bar -o "$final_install_path" "$url" || { log "ERROR: Failed to download AppImage from $url"; return 1; }
-        log "Making $final_install_path executable..."
-        chmod +x "$final_install_path" || { log "ERROR: Failed to make AppImage executable"; rm -f "$final_install_path"; return 1; }
-        log "AppImage '$name_inside_archive' installed successfully to $final_install_path."
-        return 0 # Installation complete for AppImage, exit function
-    fi
-
-    # --- Handle other archive types (require download to temp, then extraction) ---
-    mkdir -p "$temp_dir" || { log "ERROR: Failed to create temp directory $temp_dir"; return 1; }
-    # Change into temp directory for easier extraction/manipulation
-    cd "$temp_dir" || { log "ERROR: Failed to cd into $temp_dir"; rm -rf "$temp_dir"; return 1; }
-
-    log "Downloading '$url' to temporary file '$downloaded_file'..."
-    curl -L --progress-bar -o "$downloaded_file" "$url" || { log "ERROR: Failed to download $url"; rm -rf "$temp_dir"; return 1; }
-
-    log "Extracting '$downloaded_file' (Type: $archive_type_hint)..."
-    case "$archive_type_hint" in
-        "tar.xz")
-            if ! command -v xz &> /dev/null; then log "ERROR: 'xz' command (for .tar.xz) not found. Please install it."; rm -rf "$temp_dir"; return 1; fi
-            tar -Jxf "$downloaded_file" || { log "ERROR: Failed to extract tar.xz archive."; rm -rf "$temp_dir"; return 1; }
-            ;;
-        "tar.gz")
-            tar -zxf "$downloaded_file" || { log "ERROR: Failed to extract tar.gz archive."; rm -rf "$temp_dir"; return 1; }
-            ;;
-        "zip")
-            if ! command -v unzip &> /dev/null; then
-                log "ERROR: 'unzip' command not found. Please install it to handle .zip files."
-                rm -rf "$temp_dir"; return 1;
-            fi
-            unzip -q "$downloaded_file" || { log "ERROR: Failed to extract zip archive."; rm -rf "$temp_dir"; return 1; }
-            ;;
-        *)
-            log "ERROR: Unsupported archive type '$archive_type_hint'. Cannot extract."
-            rm -rf "$temp_dir"; return 1;
-            ;;
-    esac
-
-    # --- Verify extracted content and move to final destination ---
-    # Check if the expected item (file or directory) exists in the temp extraction path
-    if [ ! -e "$name_inside_archive" ]; then # Checks for file OR directory existence
-        log "ERROR: After extraction, expected item '$name_inside_archive' not found in $temp_dir."
-        log "Please verify the content of the archive and the 'name_inside_archive' parameter."
-        # Attempt a heuristic for common tarball behavior: single, differently named top-level directory.
-        if [[ "$archive_type_hint" == tar.* ]]; then
-            local extracted_dir_guess=$(find . -maxdepth 1 -mindepth 1 -type d ! -name "$name_inside_archive" -print -quit)
-            if [ -n "$extracted_dir_guess" ]; then
-                log "WARNING: Found a different top-level directory '$extracted_dir_guess'. Using this instead of '$name_inside_archive'."
-                name_inside_archive=$(basename "$extracted_dir_guess") # Update for move
-                final_install_path="$target_parent_dir/$name_inside_archive" # Update final path too
-            else
-                log "ERROR: No suitable content found for moving after extraction in '$temp_dir'."
-                cd - > /dev/null # Go back before removing temp dir
-                rm -rf "$temp_dir"; return 1;
-            fi
-        else # For zip or other types, if it's not found, it's a hard error.
-            cd - > /dev/null # Go back before removing temp dir
-            rm -rf "$temp_dir"; return 1;
+        local target_path="$PACKAGES_BIN_DIR/$download_filename"
+        log "Moving AppImage '$download_filename' to '$target_path'..."
+        if mv "$tmp_download_path" "$target_path"; then
+            chmod +x "$target_path"
+            log "AppImage installed and made executable: '$target_path'"
+            install_success=1
+        else
+            log "Error: Failed to move AppImage."
         fi
-    fi
-
-    log "Moving extracted content '$name_inside_archive' from $temp_dir to $final_install_path..."
-    # Determine if sudo is needed for 'mv' operation
-    local mv_cmd="mv \"$name_inside_archive\" \"$final_install_path\""
-    if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
-        sudo bash -c "$mv_cmd" || { log "ERROR: Failed to move '$name_inside_archive' to $final_install_path with sudo."; cd - > /dev/null; rm -rf "$temp_dir"; return 1; }
     else
-        bash -c "$mv_cmd" || { log "ERROR: Failed to move '$name_inside_archive' to $final_install_path."; cd - > /dev/null; rm -rf "$temp_dir"; return 1; }
-    fi
+        # 3. Make a temporary dir and extract files into it (for non-AppImage types)
+        tmp_extract_dir=$(mktemp -d)
+        log "Extracting '$tmp_download_path' to '$tmp_extract_dir'..."
+        case "$archive_type_hint" in
+            "tar.gz")
+                if ! tar -xzf "$tmp_download_path" -C "$tmp_extract_dir"; then
+                    log "Error: Failed to extract tar.gz archive."
+                    return 1
+                fi
+                ;;
+            "tar.xz")
+                if ! tar -xJf "$tmp_download_path" -C "$tmp_extract_dir"; then
+                    log "Error: Failed to extract tar.xz archive."
+                    return 1
+                fi
+                ;;
+            "zip")
+                # -q for quiet, -d for directory
+                if ! unzip -q "$tmp_download_path" -d "$tmp_extract_dir"; then
+                    log "Error: Failed to extract zip archive."
+                    return 1
+                fi
+                ;;
+            *)
+                log "Error: Unsupported archive type hint '$archive_type_hint'."
+                return 1
+                ;;
+        esac
+        log "Extraction complete."
 
-    # Make executable if it's a single file (not a directory)
-    if [ -f "$final_install_path" ]; then # Check if the installed item is a file
-        if ! [ -x "$final_install_path" ]; then # If it's a file and not already executable
-            log "Making $final_install_path executable."
-            # Use sudo if target_parent_dir required it
-            if [[ "$target_parent_dir" == "/opt" || "$target_parent_dir" == "/usr/local/bin" ]]; then
-                sudo chmod +x "$final_install_path" || log "WARNING: Failed to make $final_install_path executable with sudo."
+        # 4. Check the contents of temporary dir and depending on contents:
+        # Use `find` to handle hidden files and complex names better,
+        # but for common cases, globbing `*` is sufficient and simpler.
+        # Let's use globbing `"$tmp_extract_dir"/*` for simplicity as requested.
+        local extracted_contents=( "$tmp_extract_dir"/* )
+        local num_contents="${#extracted_contents[@]}"
+
+        if (( num_contents == 0 )); then
+            log "Warning: No contents found in extracted directory '$tmp_extract_dir'."
+            return 1
+        elif (( num_contents > 1 )); then
+            # 4.1 if dir contains multiple files/dirs, make new dir in ~/opt and move contents into new dir
+            local target_dir="$PACKAGES_OPT_DIR/$package_base_name"
+            log "Multiple items found. Creating '$target_dir' and moving contents."
+            mkdir -p "$target_dir"
+            if mv "$tmp_extract_dir"/* "$target_dir/"; then
+                log "Contents moved to '$target_dir'."
+                install_success=1
             else
-                chmod +x "$final_install_path" || log "WARNING: Failed to make $final_install_path executable."
+                log "Error: Failed to move multiple contents to '$target_dir'."
+            fi
+        elif (( num_contents == 1 )); then
+            local first_item="${extracted_contents[0]}"
+            if [[ -d "$first_item" ]]; then
+                # 4.2 if it contains only a dir, just move that dir into ~/opt directly
+                log "Single directory found. Moving '$first_item' to '$PACKAGES_OPT_DIR/'."
+                # Rename if package_base_name is different from actual extracted dir name
+                local final_dir_name="$(basename "$first_item")"
+                if mv "$first_item" "$PACKAGES_OPT_DIR/$final_dir_name"; then
+                    log "Directory moved to '$PACKAGES_OPT_DIR/$final_dir_name'."
+                    install_success=1
+                else
+                    log "Error: Failed to move single directory to '$PACKAGES_OPT_DIR'."
+                fi
+            else
+                # 4.3 if it contains only a single file/binary, move it into ~/bin
+                local target_path="$PACKAGES_BIN_DIR/$(basename "$first_item")"
+                log "Single file/binary found. Moving '$first_item' to '$target_path'."
+                if mv "$first_item" "$target_path"; then
+                    chmod +x "$target_path" # Ensure executability for single files
+                    log "File moved to '$target_path' and made executable."
+                    install_success=1
+                else
+                    log "Error: Failed to move single file to '$PACKAGES_BIN_DIR'."
+                fi
             fi
         fi
     fi
 
-    cd - > /dev/null # Go back to the directory from which the function was called
-    rm -rf "$temp_dir" # Clean up temporary directory
-    log "Package '$name_inside_archive' installed successfully to $final_install_path."
-    return 0
+    # 5. If succeeded, append url into urls.txt
+    if (( install_success == 1 )); then
+        echo "$url" >> "$INSTALLED_URLS_FILE"
+        log "URL added to '$INSTALLED_URLS_FILE'."
+        return 0
+    else
+        log "Installation failed for '$url'."
+        return 1
+    fi
 }
 
 # --- Main Installation Steps ---
@@ -229,10 +247,10 @@ main() {
 
     for task_string in "${WEB_PACKAGES[@]}"; do
         # Split the string by the delimiter (pipe '|') into four variables
-        IFS='|' read -r url name_inside_archive target_parent_dir archive_type_hint <<< "$task_string"
+        IFS='|' read -r url archive_type_hint <<< "$task_string"
 
         # Call the generic installation function
-        install_web_package "$url" "$name_inside_archive" "$target_parent_dir" "$archive_type_hint"
+        install_web_package "$url" "$archive_type_hint"
         echo # Add a blank line for readability between tasks
     done
 
